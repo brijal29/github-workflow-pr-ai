@@ -31,7 +31,7 @@ jobs:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}     # required for LLM summaries
           OPENAI_MODEL: gpt-3.5-turbo
-          JIRA_BASE_URL: https://ascensionjira.atlassian.net/browse
+          JIRA_BASE_URL: https://<orgURL>/browse
           MAX_FILES: "8"
           MAX_PATCH_CHARS: "2000"
           DRY_RUN: "false"   # set to false after validating output
