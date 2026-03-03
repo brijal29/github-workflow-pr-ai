@@ -30,8 +30,9 @@
  * - DRY_RUN=true|false
  */
 
-const fs = require("fs");
-const { Octokit } = require("@octokit/rest");
+import fs from "fs";
+import fetch from "node-fetch";
+import { Octokit } from "@octokit/rest";
 
 // Node 18+ has fetch globally. If not, fallback to node-fetch dynamically.
 async function getFetch() {
