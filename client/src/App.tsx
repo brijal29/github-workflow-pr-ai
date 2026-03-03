@@ -45,7 +45,7 @@ function App() {
       location: 'Indianapolis, Indiana',
       email: 'brijalpatel291@gmail.com',
       summary:
-        'Highly skilled and results-driven Senior Software Engineer with a strong track record of delivering high-quality, efficient solutions across backend and frontend development. Strong problem-solving, technical excellence across the SDLC (analysis, design, implementation, testing), and a collaborative mindset with experience mentoring junior developers in fast-paced environments.',
+        'Accomplished Senior Software Engineer with over a decade of experience designing and delivering scalable, high-impact software solutions across full-stack environments. Demonstrated expertise in leading end-to-end development initiatives, driving architectural decisions, and optimizing system performance across the SDLC. Recognized for strong strategic problem-solving, technical leadership, and the ability to mentor and elevate engineering teams in fast-paced, growth-oriented environments.',
       links: [
         { label: 'Email', href: 'mailto:brijalpatel291@gmail.com' },
         { label: 'GitHub', href: 'https://github.com/brijal29' },
