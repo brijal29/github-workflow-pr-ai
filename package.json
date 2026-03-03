@@ -1,6 +1,7 @@
 {
   "name": "portfolio-react-node",
   "private": true,
+  "type": "module",
   "workspaces": [
     "client",
     "server"
