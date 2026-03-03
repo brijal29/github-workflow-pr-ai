@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react'
 import { useMemo, useState } from 'react'
+import profilePic from './assets/profilePic.png'
 
 type ContactStatus = 'idle' | 'sending' | 'sent' | 'error'
 
@@ -38,6 +39,8 @@ function App() {
   const me = useMemo(
     () => ({
       name: 'Brijal Patel',
+      initials: 'BP',
+      avatarUrl: profilePic as string,
       role: 'Senior Software Engineer',
       location: 'Indianapolis, Indiana',
       email: 'brijalpatel291@gmail.com',
@@ -213,10 +216,26 @@ function App() {
         <section id="home" className="py-16 md:py-24">
           <div className="grid gap-10 md:grid-cols-5 md:items-center">
             <div className="md:col-span-3">
-              <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200/80">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                {me.location}
-              </p>
+              <div className="flex items-center gap-4">
+                <div className="relative h-16 w-16 overflow-hidden rounded-full border border-white/20 bg-slate-900/80 shadow-lg">
+                  {me.avatarUrl ? (
+                    <img
+                      src={me.avatarUrl}
+                      alt={me.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-slate-100">
+                      {me.initials}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-100">{me.name}</p>
+                   <p className="text-sm text-slate-100" >
+                {me.location}</p>
+                </div>
+              </div>
               <h1 className="mt-6 text-balance text-4xl font-semibold tracking-tight md:text-6xl">
                 {me.role} building delightful products.
               </h1>

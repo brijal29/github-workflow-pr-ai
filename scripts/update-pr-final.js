@@ -1,18 +1,3 @@
-// scripts/update-pr-final.js
-// Node 18+ (ES module). Place in scripts/ directory and run in GitHub Actions.
-//
-// Purpose:
-// - Summarize code changes at function-level, ignoring vague commit messages.
-// - Inject results into PR body: `## Describe your changes`, `## Issue ticket number and link`, `## Type of change`.
-//
-// Env expected:
-// - GITHUB_TOKEN (required), GITHUB_REPOSITORY, GITHUB_EVENT_NAME, GITHUB_EVENT_PATH (provided by Actions)
-// - Optional: OPENAI_API_KEY, OPENAI_MODEL, JIRA_BASE_URL, MAX_FILES, MAX_PATCH_CHARS, DRY_RUN
-
-import fs from "fs";
-import fetch from "node-fetch";
-import { Octokit } from "@octokit/rest";
-
 /**
  * scripts/update-pr-final.js
  * Node 18+ (CommonJS). Place in scripts/ and run in GitHub Actions.
@@ -22,17 +7,32 @@ import { Octokit } from "@octokit/rest";
  * - Append only NEW commit summaries to "## Describe your changes" using hidden SHA markers.
  * - Fill "## Issue ticket number and link" from commit messages.
  * - Fill "## Type of change" checkboxes from commit prefixes (feat/fix).
+ * - Jira Sync:
+ *    - On PR opened/reopened: comment PR link + transition ticket to In Progress (optional)
+ *    - On PR merged: comment + transition ticket to Done (optional)
  *
  * Env expected:
- * - Required (Actions provides most):
+ * - Required:
  *   - GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_EVENT_NAME, GITHUB_EVENT_PATH
- * - Optional:
+ * - Optional (OpenAI):
  *   - OPENAI_API_KEY, OPENAI_MODEL, OPENAI_TEMPERATURE
- *   - JIRA_BASE_URL
+ * - Optional (Jira link rendering in template):
+ *   - JIRA_BASE_URL (also used by Jira sync)
+ * - Optional (Jira sync auth):
+ *   - JIRA_EMAIL, JIRA_API_TOKEN
+ * - Optional (Jira sync behavior):
+ *   - JIRA_ENABLE_TRANSITIONS=true|false (default true)
+ *   - JIRA_ENABLE_COMMENTS=true|false (default true)
+ *   - JIRA_TRANSITION_IN_PROGRESS_NAME (default "In Progress")
+ *   - JIRA_TRANSITION_DONE_NAME (default "Done")
+ * - Limits:
  *   - MAX_FILES, MAX_PATCH_CHARS
- *   - DRY_RUN=true|false
+ * - DRY_RUN=true|false
  */
 
+import fs from "fs";
+import fetch from "node-fetch";
+import { Octokit } from "@octokit/rest";
 
 // Node 18+ has fetch globally. If not, fallback to node-fetch dynamically.
 async function getFetch() {
@@ -51,9 +51,19 @@ const OPENAI_KEY = process.env.OPENAI_API_KEY || null;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-3.5-turbo";
 const OPENAI_TEMPERATURE = parseFloat(process.env.OPENAI_TEMPERATURE || "0.15");
 
-const JIRA_BASE = process.env.JIRA_BASE_URL
-  ? process.env.JIRA_BASE_URL.replace(/\/+$/, "") + "/"
+const JIRA_BASE_URL = process.env.JIRA_BASE_URL
+  ? process.env.JIRA_BASE_URL.replace(/\/+$/, "")
   : null;
+const JIRA_EMAIL = process.env.JIRA_EMAIL || null;
+const JIRA_API_TOKEN = process.env.JIRA_API_TOKEN || null;
+
+const JIRA_ENABLE_TRANSITIONS = (process.env.JIRA_ENABLE_TRANSITIONS || "true").toLowerCase() === "true";
+const JIRA_ENABLE_COMMENTS = (process.env.JIRA_ENABLE_COMMENTS || "true").toLowerCase() === "true";
+const JIRA_TRANSITION_IN_PROGRESS_NAME = process.env.JIRA_TRANSITION_IN_PROGRESS_NAME || "In Progress";
+const JIRA_TRANSITION_DONE_NAME = process.env.JIRA_TRANSITION_DONE_NAME || "Done";
+
+// Used for template links too:
+const JIRA_LINK_BASE = JIRA_BASE_URL ? `${JIRA_BASE_URL}/browse/` : null;
 
 const MAX_FILES = parseInt(process.env.MAX_FILES || "10", 10);
 const MAX_PATCH_CHARS = parseInt(process.env.MAX_PATCH_CHARS || "3000", 10);
@@ -123,9 +133,7 @@ async function openaiChat(messages, max_tokens = 300) {
 
     const txt = await resp.text();
     if (resp.status >= 500 || resp.status === 429) {
-      console.warn(
-        `OpenAI transient error ${resp.status} - retrying: ${txt.slice(0, 160)}`
-      );
+      console.warn(`OpenAI transient error ${resp.status} - retrying: ${txt.slice(0, 160)}`);
       await sleep(1000 * (attempt + 1));
       continue;
     }
@@ -133,6 +141,129 @@ async function openaiChat(messages, max_tokens = 300) {
   }
 
   throw new Error("OpenAI retries exhausted");
+}
+
+/* ------------------ Jira helpers ------------------ */
+function jiraConfigured() {
+  return Boolean(JIRA_BASE_URL && JIRA_EMAIL && JIRA_API_TOKEN);
+}
+
+function jiraAuthHeader() {
+  const token = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
+  return `Basic ${token}`;
+}
+
+async function jiraRequest(path, method = "GET", body = null) {
+  const _fetch = await getFetch();
+  const url = `${JIRA_BASE_URL}/rest/api/3${path}`;
+
+  const resp = await _fetch(url, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: jiraAuthHeader(),
+      Accept: "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (resp.status === 204) return null; // no-content success
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`Jira API error ${resp.status}: ${txt}`);
+  }
+
+  return await resp.json();
+}
+
+// ADF comment builder (Jira Cloud)
+function jiraADFParagraph(text) {
+  return {
+    type: "doc",
+    version: 1,
+    content: [
+      {
+        type: "paragraph",
+        content: [{ type: "text", text }],
+      },
+    ],
+  };
+}
+
+async function jiraAddComment(issueKey, text) {
+  await jiraRequest(`/issue/${encodeURIComponent(issueKey)}/comment`, "POST", {
+    body: jiraADFParagraph(text),
+  });
+}
+
+// Find transition ID by name, then execute it
+async function jiraTransitionByName(issueKey, targetName) {
+  const data = await jiraRequest(`/issue/${encodeURIComponent(issueKey)}/transitions`, "GET");
+  const transitions = data?.transitions || [];
+  const target = transitions.find(t => (t.name || "").toLowerCase() === targetName.toLowerCase());
+
+  if (!target?.id) {
+    console.warn(`Jira: Transition "${targetName}" not found for ${issueKey}. Available: ${transitions.map(t => t.name).join(", ")}`);
+    return false;
+  }
+
+  await jiraRequest(`/issue/${encodeURIComponent(issueKey)}/transitions`, "POST", {
+    transition: { id: target.id },
+  });
+  return true;
+}
+
+/**
+ * Sync Jira for PR events:
+ * - opened/reopened: comment + transition to In Progress (optional)
+ * - merged (closed+merged=true): comment + transition to Done (optional)
+ */
+async function jiraSyncForPREvent({ prNumber, prUrl, prTitle, tickets, eventAction, merged }) {
+  if (!jiraConfigured()) {
+    console.log("Jira sync skipped: JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKEN not configured.");
+    return;
+  }
+  if (!tickets || tickets.size === 0) {
+    console.log("Jira sync skipped: no Jira ticket keys detected.");
+    return;
+  }
+
+  // Decide what to do based on event type/action
+  const isOpenedLike = eventAction === "opened" || eventAction === "reopened";
+  const isMerged = Boolean(merged);
+
+  // Avoid noisy comment spam on synchronize/edited
+  const shouldComment = JIRA_ENABLE_COMMENTS && (isOpenedLike || isMerged);
+  const shouldTransition = JIRA_ENABLE_TRANSITIONS && (isOpenedLike || isMerged);
+
+  const ticketList = Array.from(tickets);
+
+  for (const key of ticketList) {
+    try {
+      if (shouldComment) {
+        const marker = `[pr-agent:${prNumber}]`; // helps recognize agent-generated comments
+        const text = isMerged
+          ? `${marker} PR merged: ${prTitle} — ${prUrl}`
+          : `${marker} PR opened: ${prTitle} — ${prUrl}`;
+        if (!DRY_RUN) {
+          await jiraAddComment(key, text);
+        } else {
+          console.log(`DRY_RUN: would add Jira comment to ${key}: ${text}`);
+        }
+      }
+
+      if (shouldTransition) {
+        const target = isMerged ? JIRA_TRANSITION_DONE_NAME : JIRA_TRANSITION_IN_PROGRESS_NAME;
+        if (!DRY_RUN) {
+          await jiraTransitionByName(key, target);
+        } else {
+          console.log(`DRY_RUN: would transition ${key} -> "${target}"`);
+        }
+      }
+    } catch (err) {
+      console.warn(`Jira sync failed for ${key}:`, err.message);
+    }
+  }
 }
 
 /* ------------------ commit / ticket extraction ------------------ */
@@ -217,7 +348,7 @@ function buildTicketListLines(ticketSet) {
   if (!ticketSet || ticketSet.size === 0) return ["(No JIRA ticket found in commits)"];
   const arr = Array.from(ticketSet);
   return arr.map((t) =>
-    JIRA_BASE ? `- [${t}](${JIRA_BASE}${encodeURIComponent(t)})` : `- ${t}`
+    JIRA_LINK_BASE ? `- [${t}](${JIRA_LINK_BASE}${encodeURIComponent(t)})` : `- ${t}`
   );
 }
 
@@ -248,9 +379,7 @@ async function summarizeSingleCommit(commitSha, commitSubject) {
     const patch = truncate(scrub(f.patch || ""), MAX_PATCH_CHARS);
 
     if (!patch) {
-      fileSummaries.push(
-        `- ${file}: ${f.status || "modified"} (${f.changes || 0} changes)`
-      );
+      fileSummaries.push(`- ${file}: ${f.status || "modified"} (${f.changes || 0} changes)`);
       continue;
     }
 
@@ -279,9 +408,7 @@ One short sentence.`,
       fileSummaries.push(`- ${out.replace(/\n+/g, " ").trim()} (${file})`);
       await sleep(120);
     } catch (e) {
-      fileSummaries.push(
-        `- ${file}: ${f.status || "modified"} (${f.changes || 0} changes)`
-      );
+      fileSummaries.push(`- ${file}: ${f.status || "modified"} (${f.changes || 0} changes)`);
     }
   }
 
@@ -320,8 +447,8 @@ function formatCommitEntry({ sha, subject, author, summary }) {
 }
 
 /* ------------------ main per PR ------------------ */
-async function processSinglePR({ number }) {
-  console.log(`Processing PR #${number}`);
+async function processSinglePR({ number, eventAction }) {
+  console.log(`Processing PR #${number} (action=${eventAction || "n/a"})`);
 
   // Read PR body first (we append only new commit summaries)
   const prResp = await octokit.pulls.get({
@@ -329,6 +456,11 @@ async function processSinglePR({ number }) {
     repo: REPO,
     pull_number: number,
   });
+
+  const prUrl = prResp.data.html_url;
+  const prTitle = prResp.data.title;
+  const prMerged = Boolean(prResp.data.merged);
+
   const existingBody = prResp.data.body || "";
 
   // Get commits
@@ -344,6 +476,19 @@ async function processSinglePR({ number }) {
     message: c.commit.message || "",
     author: (c.author && c.author.login) || c.commit.author?.name || "unknown",
   }));
+
+  // Tickets and types from commit messages
+  const { tickets, types } = extractTicketsAndTypesFromCommits(commits);
+
+  // Jira sync (open/reopen/merge)
+  await jiraSyncForPREvent({
+    prNumber: number,
+    prUrl,
+    prTitle,
+    tickets,
+    eventAction,
+    merged: prMerged && eventAction === "closed",
+  });
 
   // Describe section content + already summarized shas
   const describeSection = getSectionRange(existingBody, "## Describe your changes");
@@ -391,12 +536,9 @@ async function processSinglePR({ number }) {
   if (newEntries.length) {
     newDescribeContent = `${newDescribeContent}\n\n${newEntries.join("\n")}`.trim();
   } else {
-    // If no new commits, keep as-is; don’t re-write.
     newDescribeContent = newDescribeContent || "**Auto-generated commit summaries:**";
   }
 
-  // Tickets and types from commit messages
-  const { tickets, types } = extractTicketsAndTypesFromCommits(commits);
   const ticketLines = buildTicketListLines(tickets).join("\n");
   const typeContent = buildTypeOfChangeContent(types);
 
@@ -439,7 +581,8 @@ async function main() {
 
   if (EVENT_NAME === "pull_request") {
     const pr = rawEvent.pull_request;
-    prsToProcess.push({ number: pr.number });
+    const action = rawEvent.action; // opened, reopened, synchronize, edited, closed...
+    prsToProcess.push({ number: pr.number, eventAction: action });
   } else if (EVENT_NAME === "push") {
     const pushedRef = rawEvent.ref.replace("refs/heads/", "");
     console.log("Push event to branch:", pushedRef);
@@ -452,7 +595,7 @@ async function main() {
     });
 
     for (const p of list.data) {
-      if (p.head.ref === pushedRef) prsToProcess.push({ number: p.number });
+      if (p.head.ref === pushedRef) prsToProcess.push({ number: p.number, eventAction: "synchronize" });
     }
 
     if (prsToProcess.length === 0) {
