@@ -2,7 +2,7 @@ name: Auto-fill PR template sections
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, edited, synchronize, reopened, closed]
   push:
     branches: ['**']
 
@@ -28,11 +28,28 @@ jobs:
 
       - name: Run PR Agent
         env:
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}     # required for LLM summaries
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # OpenAI (LLM summaries)
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-3.5-turbo
-          JIRA_BASE_URL: https://<orgURL>/browse
+          OPENAI_TEMPERATURE: "0.15"
+
+          # Jira Sync (IMPORTANT: base URL only, no /browse)
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}     # e.g. https://yourorg.atlassian.net
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+          # Jira behavior toggles
+          JIRA_ENABLE_COMMENTS: "true"
+          JIRA_ENABLE_TRANSITIONS: "true"
+
+          # Transition names (change if your Jira workflow uses different names)
+          JIRA_TRANSITION_IN_PROGRESS_NAME: "Code Review"
+          JIRA_TRANSITION_DONE_NAME: "Done"
+
+          # Limits / safety
           MAX_FILES: "8"
           MAX_PATCH_CHARS: "2000"
-          DRY_RUN: "false"   # set to false after validating output
+          DRY_RUN: "false"
         run: node ./scripts/update-pr-final.js
