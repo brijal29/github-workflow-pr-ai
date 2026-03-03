@@ -444,7 +444,7 @@ function App() {
                       value={form.name}
                       onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                       className="rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-slate-100 outline-none ring-indigo-500/30 focus:ring-4"
-                      placeholder="Jane Doe"
+                      placeholder="Brijal Patel"
                     />
                   </label>
 
@@ -456,7 +456,7 @@ function App() {
                       value={form.email}
                       onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                       className="rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-slate-100 outline-none ring-indigo-500/30 focus:ring-4"
-                      placeholder="jane@example.com"
+                      placeholder="brijalpatel291@gmail.com"
                     />
                   </label>
                 </div>
@@ -478,7 +478,7 @@ function App() {
                     value={form.message}
                     onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
                     className="min-h-[140px] resize-y rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-slate-100 outline-none ring-indigo-500/30 focus:ring-4"
-                    placeholder="Tell me about what you’re building…"
+                    placeholder="Share details about the role, project, or collaboration you have in mind…"
                   />
                 </label>
 
