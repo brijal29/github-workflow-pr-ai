@@ -2,11 +2,11 @@ import cors from 'cors'
 import express from 'express'
 import helmet from 'helmet'
 import morgan from 'morgan'
-import { mkdir, appendFile } from 'node:fs/promises'
 import path from 'node:path'
 import { z } from 'zod'
+import { appendJsonLine, getEnvInt, getIsoTimestamp } from './utils/index.js'
 
-const PORT = Number.parseInt(process.env.PORT ?? '5174', 10)
+const PORT = getEnvInt('PORT', 5174)
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173'
 
 const ContactSchema = z.object({
@@ -19,11 +19,10 @@ const ContactSchema = z.object({
 type ContactPayload = z.infer<typeof ContactSchema>
 
 async function storeContactMessage(input: Omit<ContactPayload, 'website'> & { meta: Record<string, unknown> }) {
-  const dataDir = path.join(process.cwd(), 'data')
-  await mkdir(dataDir, { recursive: true })
-
-  const line = JSON.stringify({ ...input, createdAt: new Date().toISOString() }) + '\n'
-  await appendFile(path.join(dataDir, 'contact-messages.jsonl'), line, { encoding: 'utf8' })
+  await appendJsonLine(path.join(process.cwd(), 'data', 'contact-messages.jsonl'), {
+    ...input,
+    createdAt: getIsoTimestamp()
+  })
 }
 
 const app = express()
