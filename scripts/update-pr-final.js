@@ -388,7 +388,7 @@ async function summarizeSingleCommit(commitSha, commitSubject) {
         {
           role: "system",
           content:
-            "You are a concise code reviewer. Given a diff snippet, write ONE short sentence describing what changed and why. Do not repeat commit messages.",
+            "You are a concise code reviewer. Given a diff snippet, write short summary describing what changed and why. Do not repeat commit messages.",
         },
         {
           role: "user",
@@ -400,7 +400,7 @@ DIFF:
 ${patch}
 \`\`\`
 
-One short sentence.`,
+short summary:`,
         },
       ];
 
@@ -419,16 +419,15 @@ One short sentence.`,
         {
           role: "system",
           content:
-            "Summarize the commit based on file summaries into ONE short sentence (<= 25 words).",
-        },
-        {
+            "Summarize the commit based on file summaries into short summary.",
+        },        {
           role: "user",
           content: `Commit: ${commitSubject}
 
 File summaries:
 ${fileSummaries.join("\n")}
 
-One sentence summary:`,
+Short summary:`,
         },
       ],
       120

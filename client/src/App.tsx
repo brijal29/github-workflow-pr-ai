@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react'
 import { useMemo, useState } from 'react'
 import profilePic from './assets/profilePic.png'
+import { classNames, getResponseErrorMessage, isDisabled, isExternalUrl } from './utils'
 
 type ContactStatus = 'idle' | 'sending' | 'sent' | 'error'
 
@@ -30,10 +31,6 @@ const nav = [
   { label: 'Education', href: '#education' },
   { label: 'Contact', href: '#contact' },
 ]
-
-function classNames(...xs: Array<string | false | undefined | null>) {
-  return xs.filter(Boolean).join(' ')
-}
 
 function App() {
   const me = useMemo(
@@ -164,11 +161,7 @@ function App() {
       })
 
       if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as unknown
-        const message =
-          typeof body === 'object' && body && 'error' in body
-            ? String((body as { error: unknown }).error)
-            : 'Request failed'
+        const message = await getResponseErrorMessage(res)
         throw new Error(message)
       }
 
@@ -263,11 +256,11 @@ function App() {
                   <a
                     key={l.label}
                     href={l.href}
-                    target={l.href.startsWith('http') ? '_blank' : undefined}
-                    rel={l.href.startsWith('http') ? 'noreferrer' : undefined}
+                    target={isExternalUrl(l.href) ? '_blank' : undefined}
+                    rel={isExternalUrl(l.href) ? 'noreferrer' : undefined}
                     className={classNames(
                       'text-sm text-slate-200/80 hover:text-white',
-                      (l as { disabled?: boolean }).disabled && 'pointer-events-none opacity-40'
+                      isDisabled(l) && 'pointer-events-none opacity-40'
                     )}
                   >
                     {l.label}
@@ -532,7 +525,7 @@ function App() {
             <p>© {new Date().getFullYear()} {me.name}. Built with React + Node.js.</p>
             <div className="flex gap-4">
               {me.links
-                .filter((l) => !(l as { disabled?: boolean }).disabled)
+                .filter((l) => !isDisabled(l))
                 .map((l) => (
                   <a
                     key={l.label}
