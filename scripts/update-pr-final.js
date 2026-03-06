@@ -388,7 +388,7 @@ async function summarizeSingleCommit(commitSha, commitSubject) {
         {
           role: "system",
           content:
-            "You are a concise code reviewer. Given a diff snippet, write ONE short sentence describing what changed and why. Do not repeat commit messages.",
+            "You are a concise code reviewer. Given a diff snippet, write short summary describing what changed and why. Do not repeat commit messages.",
         },
         {
           role: "user",
