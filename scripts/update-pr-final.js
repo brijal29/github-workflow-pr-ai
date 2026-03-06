@@ -419,16 +419,15 @@ short summary:`,
         {
           role: "system",
           content:
-            "Summarize the commit based on file summaries into ONE short sentence (<= 25 words).",
-        },
-        {
+            "Summarize the commit based on file summaries into short summary.",
+        },        {
           role: "user",
           content: `Commit: ${commitSubject}
 
 File summaries:
 ${fileSummaries.join("\n")}
 
-One sentence summary:`,
+Short summary:`,
         },
       ],
       120
