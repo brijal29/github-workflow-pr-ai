@@ -400,7 +400,7 @@ DIFF:
 ${patch}
 \`\`\`
 
-One short sentence.`,
+short summary:`,
         },
       ];
 
